@@ -147,9 +147,15 @@ func (s *Scraper) Scrape() error {
 	landevices, _ := s.query("query.lua","network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url)")
 	l := &fritz.LanDevices{}
 	err := l.Decode(landevices)
-		//err := json.Unmarshal([]byte(landevices), &l)
+	//err := json.Unmarshal([]byte(landevices), &l)
 	if (err != nil) {
-		level.Warn(s.logger).Log("Error", err)
+		// usually login expired
+		s.Login()
+		landevices, _ := s.query("query.lua","network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url)")
+		err := l.Decode(landevices)
+		if (err != nil) {
+			level.Warn(s.logger).Log("Error", err)
+		}
 	} else {
 		for _,v := range l.Network {
 			active, _ := strconv.ParseFloat(v.Active, 64)
