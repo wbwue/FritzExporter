@@ -8,5 +8,5 @@ type LoginChallenge struct {
 	XMLName   xml.Name `xml:"SessionInfo"`
 	SID       string   `xml:"SID"`
 	Challenge string   `xml:"Challenge"`
-	BlockTime int      `xml:BlockTime`
+	BlockTime int      `xml:"BlockTime"`
 }

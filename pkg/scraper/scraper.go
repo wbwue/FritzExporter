@@ -71,13 +71,18 @@ func (s *Scraper) Run(ctx context.Context) error {
 			return nil
 		default:
 			if loginSid == nil {
-				s.Login()
+				err := s.Login()
+				if (err != nil) {
+					level.Warn(s.logger).Log("Failed to login")
+				}
 			}
-			s.Scrape()
+			err := s.Scrape()
+			if (err != nil) {
+				level.Warn(s.logger).Log("Failed to scrape")
+			}
 			time.Sleep(15 * time.Second)
 		}
 	}
-	return nil
 }
 
 func (s *Scraper) Login() error {
@@ -138,7 +143,10 @@ func GetMD5Hash(text string) string {
 		b[i*2] = byte(r)
 		b[i*2+1] = byte(r >> 8)
 	}
-	hasher.Write([]byte(b))
+	_, err := hasher.Write([]byte(b))
+	if (err != nil) {
+		print("error")
+	}
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
@@ -150,9 +158,12 @@ func (s *Scraper) Scrape() error {
 	//err := json.Unmarshal([]byte(landevices), &l)
 	if (err != nil) {
 		// usually login expired
-		s.Login()
+		err := s.Login()
+		if (err != nil) {
+			level.Warn(s.logger).Log("Error", err)
+		}
 		landevices, _ := s.query("query.lua","network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url)")
-		err := l.Decode(landevices)
+		err = l.Decode(landevices)
 		if (err != nil) {
 			level.Warn(s.logger).Log("Error", err)
 		}
@@ -189,7 +200,12 @@ func (s *Scraper) Scrape() error {
 
 	}
 
-	s.query("internet/inetstat_counter.lua","csv=")
+	out, err := s.query("internet/inetstat_counter.lua","csv=")
+	if (err != nil) {
+		//ignore for now
+	} else {
+		level.Debug(s.logger).Log("inetstat-counter",out)
+	}
 	//systemstatus, _ := s.query("cgi-bin/system_status","")
 	//wlan, _ := s.query("data.lua","xhr=1&xhrId=wlanDevices&useajax=1&no_siderenew=&lang=de")
 
