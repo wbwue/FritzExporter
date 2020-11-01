@@ -165,7 +165,7 @@ func GetMD5Hash(text string) string {
 }
 
 func (s *Scraper) Scrape() error {
-	level.Info(s.logger).Log("lastLogTime", lastLogTime.Format(time.RFC3339))
+	level.Debug(s.logger).Log("lastLogTime", lastLogTime.Format(time.RFC3339))
 
 	landevices, _ := s.query("query.lua", "network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url)", "GET", nil)
 	l := &fritz.LanDevices{}
