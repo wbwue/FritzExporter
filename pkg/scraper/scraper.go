@@ -7,7 +7,10 @@ import (
 	"encoding/xml"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"io"
+	"net/url"
 	"strconv"
+	"strings"
 
 	//	"encoding/json"
 	"errors"
@@ -21,7 +24,6 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
-
 )
 
 var (
@@ -152,7 +154,7 @@ func GetMD5Hash(text string) string {
 
 func (s *Scraper) Scrape() error {
 
-	landevices, _ := s.query("query.lua","network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url)")
+	landevices, _ := s.query("query.lua", "network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url)", "GET", nil)
 	l := &fritz.LanDevices{}
 	err := l.Decode(landevices)
 	//err := json.Unmarshal([]byte(landevices), &l)
@@ -162,7 +164,7 @@ func (s *Scraper) Scrape() error {
 		if (err != nil) {
 			level.Warn(s.logger).Log("Error", err)
 		}
-		landevices, _ := s.query("query.lua","network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url)")
+		landevices, _ := s.query("query.lua", "network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url)", "GET", nil)
 		err = l.Decode(landevices)
 		if (err != nil) {
 			level.Warn(s.logger).Log("Error", err)
@@ -177,7 +179,7 @@ func (s *Scraper) Scrape() error {
 			LanDevicesSpeed.WithLabelValues(v.Name,v.IP,v.Mac).Set(speed)
 		}
 	}
-	trafficmon, _ := s.query("internet/inetstat_monitor.lua","action=get_graphic&myXhr=1&xhr=1&useajay=1")
+	trafficmon, _ := s.query("internet/inetstat_monitor.lua", "action=get_graphic&myXhr=1&xhr=1&useajay=1", "GET", nil)
 
 	t, err := fritz.DecodeTrafficMonitoringData(trafficmon)
 	if (err != nil) {
@@ -200,7 +202,7 @@ func (s *Scraper) Scrape() error {
 
 	}
 
-	out, err := s.query("internet/inetstat_counter.lua","csv=")
+	out, err := s.query("internet/inetstat_counter.lua", "csv=", "GET", nil)
 	if (err != nil) {
 		//ignore for now
 	} else {
@@ -208,16 +210,58 @@ func (s *Scraper) Scrape() error {
 	}
 	//systemstatus, _ := s.query("cgi-bin/system_status","")
 	//wlan, _ := s.query("data.lua","xhr=1&xhrId=wlanDevices&useajax=1&no_siderenew=&lang=de")
-
+	s.queryLogs()
 
 	return nil
 }
 
-func (s *Scraper) query(path string, options string) (string, error) {
+func (s *Scraper) queryLogs() {
+	logData := url.Values{}
+	logData.Set("page","log")
+	logData.Set("xhr","1")
+	logData.Set("xhrId","all")
+	logData.Set("lang","de")
+	logData.Set("no_siderenew","")
+	logData.Set("filter","0")
+
+	logs, err := s.query("data.lua", "", "POST", logData)
+	if (err != nil) {
+		level.Warn(s.logger).Log("Error", err)
+	}
+	loglines := &fritz.Logs{}
+	err = loglines.Decode(logs)
+	if (err != nil) {
+		level.Warn(s.logger).Log("Error", err)
+	} else {
+		// process log lines -> write to file on disk?
+	}
+}
+
+func (s *Scraper) query(path string, options string, method string, urlData url.Values) (string, error) {
 	if (options == "") {
 		options = "0=0"
     }
-	resp, err := http.Get(s.cfg.FritzBoxURL + "/" + path + "?sid=" + *loginSid + "&" + options)
+	var body io.Reader
+	var uri string
+	if (urlData != nil) {
+		urlData.Set("sid",*loginSid)
+		body = strings.NewReader(urlData.Encode())
+		uri = s.cfg.FritzBoxURL + "/" + path
+	} else {
+		uri = s.cfg.FritzBoxURL + "/" + path + "?sid=" + *loginSid + "&" + options
+
+	}
+
+    client := http.Client{
+    	Timeout: time.Duration(5 * time.Second),
+	}
+    request, err := http.NewRequest(method, uri, body)
+    if (err != nil) {
+    	level.Warn(s.logger).Log("Invalid request", err)
+	}
+	request.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	resp, err := client.Do(request)
+
 	if err != nil {
 		level.Warn(s.logger).Log("Error logging in", err)
 		return "", err
