@@ -6,6 +6,7 @@ type Config struct {
 	Username       string
 	Password       string
 	MetricsAddress string
+	LogPath        string
 }
 
 func NewConfig() *Config {

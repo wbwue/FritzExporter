@@ -26,6 +26,7 @@ GLOBAL OPTIONS:
    --log-level value         Only log messages with given severity (default: "info") [$FRITZ_LOG_LEVEL]
    --password value          Password to login into Fritz!Box [$FRITZ_PASSWORD]
    --exporter-address value  Address to bind the metrics server (default: "0.0.0.0:9200") [$FRITZ_EXPORTER_METRICS_ADDRESS]
+   --fritz-log-path          Where to write the log from FritzBox, if unset, it won't be queried
    --help, -h                Show help (default: false)
    --version, -v             Prints the current version (default: false)
 ```

@@ -30,7 +30,7 @@ type NetworkElement struct {
 
 func (l *LanDevices) Decode(body string) error {
 	err := json.Unmarshal([]byte(body), &l)
-	if (err != nil) {
+	if err != nil {
 		return err
 	} else {
 		//level.Debug(s.logger).Log("devices", l.Network)

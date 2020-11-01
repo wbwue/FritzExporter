@@ -7,21 +7,21 @@ import (
 // TrafficMonitoringData holds the data for the up- and downstream traffic reported by the FRITZ!Box.
 // codebeat:disable[TOO_MANY_IVARS]
 type TrafficMonitoringData struct {
-	Downstream      float64 `json:"downstream"`
-	DownstreamMax     float64 `json:"ds_bps_max"`
-	DownstreamCurrentMax     float64 `json:"ds_bps_curr_max"`
+	Downstream              float64   `json:"downstream"`
+	DownstreamMax           float64   `json:"ds_bps_max"`
+	DownstreamCurrentMax    float64   `json:"ds_bps_curr_max"`
 	DownstreamInternet      []float64 `json:"ds_bps_curr"`
 	DownstreamMedia         []float64 `json:"ds_mc_bps_curr"`
 	DownstreamGuest         []float64 `json:"ds_guest_bps_curr,omitempty"`
-	Upstream      float64 `json:"upstream"`
-	UpstreamMax      float64 `json:"us_bps_max"`
+	Upstream                float64   `json:"upstream"`
+	UpstreamMax             float64   `json:"us_bps_max"`
 	UpstreamRealtime        []float64 `json:"us_realtime_bps_curr"`
-	UpstreamCurrentMax     float64 `json:"us_bps_curr_max"`
+	UpstreamCurrentMax      float64   `json:"us_bps_curr_max"`
 	UpstreamHighPriority    []float64 `json:"us_important_bps_curr"`
 	UpstreamDefaultPriority []float64 `json:"us_default_bps_curr"`
 	UpstreamLowPriority     []float64 `json:"us_background_bps_curr"`
 	UpstreamGuest           []float64 `json:"guest_us_bps,omitempty"`
-	Mode 	string `json:"mode"`
+	Mode                    string    `json:"mode"`
 }
 
 // codebeat:enable[TOO_MANY_IVARS]
@@ -62,16 +62,15 @@ func div(xs []float64, d float64) []float64 {
 	return ys
 }
 
-
-func DecodeTrafficMonitoringData(body string) (*TrafficMonitoringData,error) {
+func DecodeTrafficMonitoringData(body string) (*TrafficMonitoringData, error) {
 	t := &[]TrafficMonitoringData{}
 	err := json.Unmarshal([]byte(body), t)
 
-	if (err != nil) {
-		return nil,err
+	if err != nil {
+		return nil, err
 	} else {
-		for _,v := range *t {
-			return &v,nil
+		for _, v := range *t {
+			return &v, nil
 		}
 	}
 	return nil, nil

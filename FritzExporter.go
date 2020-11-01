@@ -87,6 +87,13 @@ func main() {
 			EnvVars:     []string{"FRITZ_EXPORTER_METRICS_ADDRESS"},
 			Destination: &cfg.MetricsAddress,
 		},
+		&cli.StringFlag{
+			Name:        "fritz-log-path",
+			Value:       "",
+			Usage:       "Where to write the log from FritzBox, if unset, it won't be queried",
+			EnvVars:     []string{"FRITZ_EXPORTER_LOG_PATH"},
+			Destination: &cfg.LogPath,
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
