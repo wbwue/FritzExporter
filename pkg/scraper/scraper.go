@@ -234,6 +234,8 @@ func (s *Scraper) queryLogs() {
 		level.Warn(s.logger).Log("Error", err)
 	} else {
 		// process log lines -> write to file on disk?
+		//jsonLines,_ := loglines.Encode()
+		//level.Info(s.logger).Log("loglines", jsonLines)
 	}
 }
 

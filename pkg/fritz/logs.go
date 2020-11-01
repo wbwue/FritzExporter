@@ -1,6 +1,9 @@
 package fritz
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Logs struct {
 	Data Data `json:"data"`
@@ -15,22 +18,30 @@ type Data struct {
 }
 
 type LogLine struct {
-	Date string
-	Time string
-	Message string
-	InfoCode string
-	Filter string
-	HelpUrl string
+	Timestamp time.Time `json:"timestamp"`
+	Message string `json:"message`
+	InfoCode string `json:"info_code"`
+	Filter string `json:"filter"`
+	HelpUrl string `json:"help_url"`
 }
+
+// Filter values:
+// 1: System, 2: Internetverbindung, 3: Telefonie, 4: WLAN, 5: USB-Geräte
 
 type Show struct {}
 
 func (l *Logs) Decode(body string) error {
 	err := json.Unmarshal([]byte(body), &l)
+	if (err != nil) {
+		return err
+	}
 	for _,k := range l.Data.LogFields {
+		date,err := time.ParseInLocation("02.01.06 15:04:05",k[0] + " " + k[1],time.Local)
+		if (err != nil) {
+			return err
+		}
 		line := LogLine{
-			k[0],
-			k[1],
+			date,
 			k[2],
 			k[3],
 			k[4],
@@ -38,9 +49,14 @@ func (l *Logs) Decode(body string) error {
 		}
 		l.Data.LogLines = append(l.Data.LogLines, line)
 	}
+	return nil
+}
+
+func (l *Logs) Encode() (string, error) {
+	resBytes, err := json.Marshal(l.Data.LogLines)
 	if (err != nil) {
-		return err
+		return "", err
 	} else {
-		return nil
+		return string(resBytes), nil
 	}
 }
