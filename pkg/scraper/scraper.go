@@ -224,7 +224,9 @@ func (s *Scraper) Scrape() error {
 	//systemstatus, _ := s.query("cgi-bin/system_status","")
 	//wlan, _ := s.query("data.lua","xhr=1&xhrId=wlanDevices&useajax=1&no_siderenew=&lang=de")
 
-	s.queryLogs()
+	if s.cfg.LogPath != "" {
+		s.queryLogs()
+	}
 
 	return nil
 }
