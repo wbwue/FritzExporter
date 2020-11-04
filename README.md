@@ -30,3 +30,16 @@ GLOBAL OPTIONS:
    --help, -h                Show help (default: false)
    --version, -v             Prints the current version (default: false)
 ```
+
+## Available Metrics
+
+```
+HELP fritzbox_internet_downstream_current Gauge showing latest internet downstream speed
+HELP fritzbox_internet_upstream_current Gauge showing latest internet upstream speed
+HELP fritzbox_lan_devices_active Gauge showing active state of device
+    labels: ip, mac, name
+HELP fritzbox_lan_devices_online Gauge showing online state of device
+HELP fritzbox_lan_devices_speed Gauge showing speed of device
+```
+
+FritzBox log file written to local disk (see parameter --fritz-log-path)
