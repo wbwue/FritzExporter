@@ -37,9 +37,14 @@ GLOBAL OPTIONS:
 HELP fritzbox_internet_downstream_current Gauge showing latest internet downstream speed
 HELP fritzbox_internet_upstream_current Gauge showing latest internet upstream speed
 HELP fritzbox_lan_devices_active Gauge showing active state of device
-    labels: ip, mac, name
+    labels: ip, mac, name, dev_type
 HELP fritzbox_lan_devices_online Gauge showing online state of device
 HELP fritzbox_lan_devices_speed Gauge showing speed of device
+HELP fritzbox_wlan_devices_speed Gauge showing current speed of wifi device
+HELP fritzbox_wlan_devices_speed_max Gauge showing maximum speed of wifi device
+    labels: ip, mac, name, dev_type, band, standard, direction
+HELP fritzbox_wlan_devices_signal Gauge showing signal strength of wifi devices
+    labels: ip, mac, name, dev_type, band, standard
 ```
 
 FritzBox log file written to local disk (see parameter --fritz-log-path)
