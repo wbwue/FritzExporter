@@ -202,7 +202,7 @@ func (s *Scraper) Scrape() error {
 			active, _ := strconv.ParseFloat(v.Active, 64)
 			online, _ := strconv.ParseFloat(v.Online, 64)
 			speed, _ := strconv.ParseFloat(v.Speed, 64)
-			if (online == 1) {
+			if online == 1 {
 				fd, err := s.deviceSpecificData(v.UID)
 				if err == nil {
 					devType = fd.DevType
@@ -262,17 +262,17 @@ func (s *Scraper) Scrape() error {
 
 func (s *Scraper) deviceSpecificData(UID string) (fritz.NetDevice, error) {
 	dData := url.Values{}
-	dData.Set("xhr","1")
-	dData.Set("xhrId","all")
-	dData.Set("lang","de")
-	dData.Set("dev",UID)
-	dData.Set("page","edit_device2")
-	dData.Set("initialRefreshParamsSaved","true")
-	dData.Set("no_siderenew","")
+	dData.Set("xhr", "1")
+	dData.Set("xhrId", "all")
+	dData.Set("lang", "de")
+	dData.Set("dev", UID)
+	dData.Set("page", "edit_device2")
+	dData.Set("initialRefreshParamsSaved", "true")
+	dData.Set("no_siderenew", "")
 
 	var fd fritz.NetDevice
 
-	devData, err := s.query("data.lua","","POST",dData)
+	devData, err := s.query("data.lua", "", "POST", dData)
 	if err != nil {
 		level.Warn(s.logger).Log("error", err)
 	} else {
