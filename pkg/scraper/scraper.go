@@ -34,15 +34,27 @@ var (
 	LanDevicesOnline = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "fritzbox_lan_devices_online",
 		Help: "Gauge showing online state of device",
-	}, []string{"name", "ip", "mac"})
+	}, []string{"name", "ip", "mac", "dev_type"})
 	LanDevicesActive = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "fritzbox_lan_devices_active",
 		Help: "Gauge showing active state of device",
-	}, []string{"name", "ip", "mac"})
+	}, []string{"name", "ip", "mac", "dev_type"})
 	LanDevicesSpeed = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "fritzbox_lan_devices_speed",
 		Help: "Gauge showing speed of device",
-	}, []string{"name", "ip", "mac"})
+	}, []string{"name", "ip", "mac", "dev_type"})
+	WlanDeviceSignal = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "fritzbox_wlan_devices_signal",
+		Help: "Gauge showing signal strength of wifi devices",
+	}, []string{"name", "ip", "mac", "dev_type", "band", "standard"})
+	WlanDeviceSpeed = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "fritzbox_wlan_devices_speed",
+		Help: "Gauge showing current speed of wifi devices",
+	}, []string{"name", "ip", "mac", "dev_type", "band", "standard", "direction"})
+	WlanDeviceSpeedMax = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "fritzbox_wlan_devices_speed_max",
+		Help: "Gauge showing maximum speed of wifi devices",
+	}, []string{"name", "ip", "mac", "dev_type", "band", "standard", "direction"})
 
 	InternetDownstreamSpeed = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "fritzbox_internet_downstream_current",
@@ -167,7 +179,8 @@ func GetMD5Hash(text string) string {
 func (s *Scraper) Scrape() error {
 	level.Debug(s.logger).Log("lastLogTime", lastLogTime.Format(time.RFC3339))
 
-	landevices, _ := s.query("query.lua", "network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url)", "GET", nil)
+	landevices, _ := s.query("query.lua", "network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url,devtype)", "GET", nil)
+	level.Info(s.logger).Log(landevices)
 	l := &fritz.LanDevices{}
 	err := l.Decode(landevices)
 	//err := json.Unmarshal([]byte(landevices), &l)
@@ -177,19 +190,34 @@ func (s *Scraper) Scrape() error {
 		if err != nil {
 			level.Warn(s.logger).Log("Error", err)
 		}
-		landevices, _ := s.query("query.lua", "network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url)", "GET", nil)
+		landevices, _ := s.query("query.lua", "network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url,devtype)", "GET", nil)
 		err = l.Decode(landevices)
 		if err != nil {
 			level.Warn(s.logger).Log("Error", err)
 		}
 	} else {
 		for _, v := range l.Network {
+			// get specific infos
+			devType := "N/A"
 			active, _ := strconv.ParseFloat(v.Active, 64)
 			online, _ := strconv.ParseFloat(v.Online, 64)
 			speed, _ := strconv.ParseFloat(v.Speed, 64)
-			LanDevicesActive.WithLabelValues(v.Name, v.IP, v.Mac).Set(active)
-			LanDevicesOnline.WithLabelValues(v.Name, v.IP, v.Mac).Set(online)
-			LanDevicesSpeed.WithLabelValues(v.Name, v.IP, v.Mac).Set(speed)
+			if online == 1 {
+				fd, err := s.deviceSpecificData(v.UID)
+				if err == nil {
+					devType = fd.DevType
+					if fd.DevType == "wlan" {
+						WlanDeviceSignal.WithLabelValues(v.Name, v.IP, v.Mac, fd.DevType, fd.Wlan.Band, fd.Wlan.WlanStandard).Set(fd.Wlan.Rssi)
+						WlanDeviceSpeed.WithLabelValues(v.Name, v.IP, v.Mac, fd.DevType, fd.Wlan.Band, fd.Wlan.WlanStandard, "tx").Set(fd.Wlan.Speed)
+						WlanDeviceSpeed.WithLabelValues(v.Name, v.IP, v.Mac, fd.DevType, fd.Wlan.Band, fd.Wlan.WlanStandard, "rx").Set(fd.Wlan.SpeedRx)
+						WlanDeviceSpeedMax.WithLabelValues(v.Name, v.IP, v.Mac, fd.DevType, fd.Wlan.Band, fd.Wlan.WlanStandard, "rx").Set(fd.Wlan.SpeedRxMax)
+						WlanDeviceSpeedMax.WithLabelValues(v.Name, v.IP, v.Mac, fd.DevType, fd.Wlan.Band, fd.Wlan.WlanStandard, "tx").Set(fd.Wlan.SpeedTxMax)
+					}
+				}
+			}
+			LanDevicesActive.WithLabelValues(v.Name, v.IP, v.Mac, devType).Set(active)
+			LanDevicesOnline.WithLabelValues(v.Name, v.IP, v.Mac, devType).Set(online)
+			LanDevicesSpeed.WithLabelValues(v.Name, v.IP, v.Mac, devType).Set(speed)
 		}
 	}
 	trafficmon, _ := s.query("internet/inetstat_monitor.lua", "action=get_graphic&myXhr=1&xhr=1&useajay=1", "GET", nil)
@@ -221,6 +249,7 @@ func (s *Scraper) Scrape() error {
 	} else {
 		level.Debug(s.logger).Log("inetstat-counter", out)
 	}
+
 	//systemstatus, _ := s.query("cgi-bin/system_status","")
 	//wlan, _ := s.query("data.lua","xhr=1&xhrId=wlanDevices&useajax=1&no_siderenew=&lang=de")
 
@@ -229,6 +258,31 @@ func (s *Scraper) Scrape() error {
 	}
 
 	return nil
+}
+
+func (s *Scraper) deviceSpecificData(UID string) (fritz.NetDevice, error) {
+	dData := url.Values{}
+	dData.Set("xhr", "1")
+	dData.Set("xhrId", "all")
+	dData.Set("lang", "de")
+	dData.Set("dev", UID)
+	dData.Set("page", "edit_device2")
+	dData.Set("initialRefreshParamsSaved", "true")
+	dData.Set("no_siderenew", "")
+
+	var fd fritz.NetDevice
+
+	devData, err := s.query("data.lua", "", "POST", dData)
+	if err != nil {
+		level.Warn(s.logger).Log("error", err)
+	} else {
+
+		fd, err = fritz.DecodeSingleDevice(devData)
+		if err != nil {
+			level.Warn(s.logger).Log("message", "Decoding failed", "error", err)
+		}
+	}
+	return fd, err
 }
 
 func (s *Scraper) queryLogs() {
@@ -289,7 +343,7 @@ func (s *Scraper) query(path string, options string, method string, urlData url.
 	}
 
 	client := http.Client{
-		Timeout: time.Duration(5 * time.Second),
+		Timeout: time.Duration(10 * time.Second),
 	}
 	request, err := http.NewRequest(method, uri, body)
 	if err != nil {
