@@ -46,15 +46,19 @@ var (
 	WlanDeviceSignal = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "fritzbox_wlan_devices_signal",
 		Help: "Gauge showing signal strength of wifi devices",
-	}, []string{"name", "ip", "mac", "dev_type", "band", "standard"})
+	}, []string{"name", "ip", "mac", "dev_type"})
 	WlanDeviceSpeed = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "fritzbox_wlan_devices_speed",
 		Help: "Gauge showing current speed of wifi devices",
-	}, []string{"name", "ip", "mac", "dev_type", "band", "standard", "direction"})
+	}, []string{"name", "ip", "mac", "dev_type", "direction"})
 	WlanDeviceSpeedMax = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "fritzbox_wlan_devices_speed_max",
 		Help: "Gauge showing maximum speed of wifi devices",
-	}, []string{"name", "ip", "mac", "dev_type", "band", "standard", "direction"})
+	}, []string{"name", "ip", "mac", "dev_type","direction"})
+	WlanDeviceInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "fritzbox_wlan_devices_info",
+		Help: "Gauge showing maximum speed of wifi devices",
+	}, []string{"name", "ip", "mac", "dev_type", "band", "standard", "encryption"})
 
 	InternetDownstreamSpeed = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "fritzbox_internet_downstream_current",
@@ -69,12 +73,14 @@ var (
 type Scraper struct {
 	cfg    *config.Config
 	logger log.Logger
+	deviceband map[string]prometheus.Labels
 }
 
 func NewScraper(config *config.Config, logger log.Logger) *Scraper {
 	return &Scraper{
 		cfg:    config,
 		logger: logger,
+		deviceband: make(map[string]prometheus.Labels),
 	}
 }
 
@@ -180,10 +186,9 @@ func (s *Scraper) Scrape() error {
 	level.Debug(s.logger).Log("lastLogTime", lastLogTime.Format(time.RFC3339))
 
 	landevices, _ := s.query("query.lua", "network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url,devtype)", "GET", nil)
-	level.Info(s.logger).Log(landevices)
+	//level.Info(s.logger).Log(landevices)
 	l := &fritz.LanDevices{}
 	err := l.Decode(landevices)
-	//err := json.Unmarshal([]byte(landevices), &l)
 	if err != nil {
 		// usually login expired
 		err := s.Login()
@@ -207,11 +212,28 @@ func (s *Scraper) Scrape() error {
 				if err == nil {
 					devType = fd.DevType
 					if fd.DevType == "wlan" {
-						WlanDeviceSignal.WithLabelValues(v.Name, v.IP, v.Mac, fd.DevType, fd.Wlan.Band, fd.Wlan.WlanStandard).Set(fd.Wlan.Rssi)
-						WlanDeviceSpeed.WithLabelValues(v.Name, v.IP, v.Mac, fd.DevType, fd.Wlan.Band, fd.Wlan.WlanStandard, "tx").Set(fd.Wlan.Speed)
-						WlanDeviceSpeed.WithLabelValues(v.Name, v.IP, v.Mac, fd.DevType, fd.Wlan.Band, fd.Wlan.WlanStandard, "rx").Set(fd.Wlan.SpeedRx)
-						WlanDeviceSpeedMax.WithLabelValues(v.Name, v.IP, v.Mac, fd.DevType, fd.Wlan.Band, fd.Wlan.WlanStandard, "rx").Set(fd.Wlan.SpeedRxMax)
-						WlanDeviceSpeedMax.WithLabelValues(v.Name, v.IP, v.Mac, fd.DevType, fd.Wlan.Band, fd.Wlan.WlanStandard, "tx").Set(fd.Wlan.SpeedTxMax)
+						labels := prometheus.Labels{
+							"name": v.Name,
+							"ip": v.IP,
+							"mac": v.Mac,
+							"dev_type": fd.DevType,
+						}
+						WlanDeviceSignal.With(labels).Set(fd.Wlan.Rssi)
+						labels["direction"] = "tx"
+						WlanDeviceSpeed.With(labels).Set(fd.Wlan.Speed)
+						WlanDeviceSpeedMax.With(labels).Set(fd.Wlan.SpeedTxMax)
+						labels["direction"] = "rx"
+						WlanDeviceSpeed.With(labels).Set(fd.Wlan.SpeedRx)
+						WlanDeviceSpeedMax.With(labels).Set(fd.Wlan.SpeedRxMax)
+
+						delete(labels,"direction")
+						labels["standard"] = fd.Wlan.WlanStandard
+						labels["band"] = fd.Wlan.Band
+						labels["encryption"] = fd.Wlan.Encryption
+						oldLabels := s.deviceband[v.Name]
+						WlanDeviceInfo.Delete(oldLabels)
+						WlanDeviceInfo.With(labels).Set(1)
+						s.deviceband[v.Name] = labels
 					}
 				}
 			}
@@ -362,4 +384,26 @@ func (s *Scraper) query(path string, options string, method string, urlData url.
 		return string(body), nil
 	}
 
+}
+
+func getOtherBand(band string) string {
+	if band == "5 Ghz" {
+		return "2,4 Ghz"
+	} else {
+		return "5 Ghz"
+	}
+}
+
+func removeString(arr []string, name string) []string {
+	if len(arr) == 0 {
+		return arr
+	}
+	var it int
+
+	for i,j := range arr {
+		if j == name {
+			it = i
+		}
+	}
+	return append(arr[:it],arr[it+1:]...)
 }
