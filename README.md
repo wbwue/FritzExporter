@@ -48,3 +48,15 @@ HELP fritzbox_wlan_devices_signal Gauge showing signal strength of wifi devices
 ```
 
 FritzBox log file written to local disk (see parameter --fritz-log-path)
+
+
+# Other projects
+
+This project is not the only software extracting data from the FritzBox and offering it for prometheus, so I want to share the other projects. If you want to add/modify, just open a pull request.
+
+- https://github.com/ndecker/fritzbox_exporter
+- https://github.com/pdreker/fritzbox_exporter
+- https://github.com/SeaLife/fritzbox_exporter
+- https://github.com/mxschmitt/fritzbox_exporter
+
+This list is not regularly checked.
