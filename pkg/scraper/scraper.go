@@ -108,11 +108,14 @@ func (s *Scraper) Run(ctx context.Context) error {
 					level.Warn(s.logger).Log("Failed to login")
 				}
 			}
+			scrapeStart := time.Now()
 			err := s.Scrape()
 			if err != nil {
 				level.Warn(s.logger).Log("Failed to scrape")
 			}
-			time.Sleep(15 * time.Second)
+			runtime := time.Since(scrapeStart)
+			level.Info(s.logger).Log("message", "Scrape completed", "time", runtime)
+			time.Sleep(time.Duration(15 * time.Second) - runtime)
 		}
 	}
 }
@@ -218,13 +221,28 @@ func (s *Scraper) Scrape() error {
 							"mac": v.Mac,
 							"dev_type": fd.DevType,
 						}
-						WlanDeviceSignal.With(labels).Set(fd.Wlan.Rssi)
+						if fd.Wlan.State != "CONNECTED" {
+							WlanDeviceSignal.Delete(labels)
+						} else {
+							WlanDeviceSignal.With(labels).Set(fd.Wlan.Rssi)
+						}
+
 						labels["direction"] = "tx"
-						WlanDeviceSpeed.With(labels).Set(fd.Wlan.Speed)
-						WlanDeviceSpeedMax.With(labels).Set(fd.Wlan.SpeedTxMax)
+						if fd.Wlan.State != "CONNECTED" {
+							WlanDeviceSpeed.Delete(labels)
+							WlanDeviceSpeedMax.Delete(labels)
+						} else {
+							WlanDeviceSpeed.With(labels).Set(fd.Wlan.Speed)
+							WlanDeviceSpeedMax.With(labels).Set(fd.Wlan.SpeedTxMax)
+						}
 						labels["direction"] = "rx"
-						WlanDeviceSpeed.With(labels).Set(fd.Wlan.SpeedRx)
-						WlanDeviceSpeedMax.With(labels).Set(fd.Wlan.SpeedRxMax)
+						if fd.Wlan.State != "CONNECTED" {
+							WlanDeviceSpeed.Delete(labels)
+							WlanDeviceSpeedMax.Delete(labels)
+						} else {
+							WlanDeviceSpeedMax.With(labels).Set(fd.Wlan.SpeedRxMax)
+							WlanDeviceSpeed.With(labels).Set(fd.Wlan.SpeedRx)
+						}
 
 						delete(labels,"direction")
 						labels["standard"] = fd.Wlan.WlanStandard
@@ -232,7 +250,9 @@ func (s *Scraper) Scrape() error {
 						labels["encryption"] = fd.Wlan.Encryption
 						oldLabels := s.deviceband[v.Name]
 						WlanDeviceInfo.Delete(oldLabels)
-						WlanDeviceInfo.With(labels).Set(1)
+						if fd.Wlan.State != "CONNECTED" {
+							WlanDeviceInfo.With(labels).Set(1)
+						}
 						s.deviceband[v.Name] = labels
 					}
 				}
