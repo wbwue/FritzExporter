@@ -250,7 +250,7 @@ func (s *Scraper) Scrape() error {
 						labels["encryption"] = fd.Wlan.Encryption
 						oldLabels := s.deviceband[v.Name]
 						WlanDeviceInfo.Delete(oldLabels)
-						if fd.Wlan.State != "CONNECTED" {
+						if fd.Wlan.State == "CONNECTED" {
 							WlanDeviceInfo.With(labels).Set(1)
 						}
 						s.deviceband[v.Name] = labels
