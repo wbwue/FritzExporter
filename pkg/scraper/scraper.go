@@ -106,6 +106,7 @@ func (s *Scraper) Run(ctx context.Context) error {
 				err := s.Login()
 				if err != nil {
 					level.Warn(s.logger).Log("Failed to login")
+					return err
 				}
 			}
 			err := s.Scrape()
@@ -124,6 +125,7 @@ func (s *Scraper) Login() error {
 	resp, err := http.Get(url)
 	if err != nil {
 		level.Warn(s.logger).Log("Error logging in", err)
+		return err
 	} else {
 		defer resp.Body.Close()
 		body, _ := ioutil.ReadAll(resp.Body)
