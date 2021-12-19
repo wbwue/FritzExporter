@@ -54,7 +54,7 @@ var (
 	WlanDeviceSpeedMax = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "fritzbox_wlan_devices_speed_max",
 		Help: "Gauge showing maximum speed of wifi devices",
-	}, []string{"name", "ip", "mac", "dev_type","direction"})
+	}, []string{"name", "ip", "mac", "dev_type", "direction"})
 	WlanDeviceInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "fritzbox_wlan_devices_info",
 		Help: "Gauge showing maximum speed of wifi devices",
@@ -71,15 +71,15 @@ var (
 )
 
 type Scraper struct {
-	cfg    *config.Config
-	logger log.Logger
+	cfg        *config.Config
+	logger     log.Logger
 	deviceband map[string]prometheus.Labels
 }
 
 func NewScraper(config *config.Config, logger log.Logger) *Scraper {
 	return &Scraper{
-		cfg:    config,
-		logger: logger,
+		cfg:        config,
+		logger:     logger,
 		deviceband: make(map[string]prometheus.Labels),
 	}
 }
@@ -106,6 +106,7 @@ func (s *Scraper) Run(ctx context.Context) error {
 				err := s.Login()
 				if err != nil {
 					level.Warn(s.logger).Log("Failed to login")
+					return err
 				}
 			}
 			err := s.Scrape()
@@ -124,6 +125,7 @@ func (s *Scraper) Login() error {
 	resp, err := http.Get(url)
 	if err != nil {
 		level.Warn(s.logger).Log("Error logging in", err)
+		return err
 	} else {
 		defer resp.Body.Close()
 		body, _ := ioutil.ReadAll(resp.Body)
@@ -213,9 +215,9 @@ func (s *Scraper) Scrape() error {
 					devType = fd.DevType
 					if fd.DevType == "wlan" {
 						labels := prometheus.Labels{
-							"name": v.Name,
-							"ip": v.IP,
-							"mac": v.Mac,
+							"name":     v.Name,
+							"ip":       v.IP,
+							"mac":      v.Mac,
 							"dev_type": fd.DevType,
 						}
 						WlanDeviceSignal.With(labels).Set(fd.Wlan.Rssi)
@@ -226,7 +228,7 @@ func (s *Scraper) Scrape() error {
 						WlanDeviceSpeed.With(labels).Set(fd.Wlan.SpeedRx)
 						WlanDeviceSpeedMax.With(labels).Set(fd.Wlan.SpeedRxMax)
 
-						delete(labels,"direction")
+						delete(labels, "direction")
 						labels["standard"] = fd.Wlan.WlanStandard
 						labels["band"] = fd.Wlan.Band
 						labels["encryption"] = fd.Wlan.Encryption
@@ -288,7 +290,7 @@ func (s *Scraper) deviceSpecificData(UID string) (fritz.NetDevice, error) {
 	dData.Set("xhrId", "all")
 	dData.Set("lang", "de")
 	dData.Set("dev", UID)
-	dData.Set("page", "edit_device2")
+	dData.Set("page", "edit_device")
 	dData.Set("initialRefreshParamsSaved", "true")
 	dData.Set("no_siderenew", "")
 
@@ -298,7 +300,7 @@ func (s *Scraper) deviceSpecificData(UID string) (fritz.NetDevice, error) {
 	if err != nil {
 		level.Warn(s.logger).Log("error", err)
 	} else {
-
+		//level.Debug(s.logger).Log("UID",UID,"data",devData)
 		fd, err = fritz.DecodeSingleDevice(devData)
 		if err != nil {
 			level.Warn(s.logger).Log("message", "Decoding failed", "error", err)
@@ -400,10 +402,10 @@ func removeString(arr []string, name string) []string {
 	}
 	var it int
 
-	for i,j := range arr {
+	for i, j := range arr {
 		if j == name {
 			it = i
 		}
 	}
-	return append(arr[:it],arr[it+1:]...)
+	return append(arr[:it], arr[it+1:]...)
 }
