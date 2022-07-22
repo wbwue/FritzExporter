@@ -290,12 +290,9 @@ func (s *Scraper) Scrape() error {
 	}
 
 	ipv6, ipv4, connectionStatus, connectionError, uptime := s.getConnectionInfo()
-	level.Info(s.logger).Log("uptime", uptime)
 	InternetUptime.WithLabelValues().Set(uptime)
 
 	bytesSent, bytesReceived, wanAccessType, linkStatus, upstream, downstream := s.getLinkInfo()
-	level.Info(s.logger).Log("upstream", upstream, "downstream", downstream)
-	level.Info(s.logger).Log("upstream", bytesSent, "downstream", bytesReceived)
 	TotalBytes.WithLabelValues("upstream").Set(bytesSent)
 	TotalBytes.WithLabelValues("downstream").Set(bytesReceived)
 	MaxLinkSpeed.WithLabelValues("upstream").Set(upstream)
