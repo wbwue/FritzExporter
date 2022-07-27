@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -323,7 +324,11 @@ func (s *Scraper) Scrape() error {
 }
 
 func (s *Scraper) loadServices() error {
-	root, err := fritzbox_upnp.LoadServices("fritz.box", 49000)
+	device := regexp.MustCompile("http.*://(.*)/.*").FindAllString(s.cfg.FritzBoxURL, 1)
+	root, err := fritzbox_upnp.LoadServices(device[0], 49000)
+	if err != nil {
+		return err
+	}
 	s.upnpServicesRoot = root
 	for name, se := range root.Services {
 		for a, _ := range se.Actions {
