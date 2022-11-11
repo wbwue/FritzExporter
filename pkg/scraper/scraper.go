@@ -5,15 +5,13 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/xml"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"io"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
-	//	"encoding/json"
 	"errors"
 	"io/ioutil"
 	"net/http"
@@ -22,6 +20,11 @@ import (
 
 	"github.com/wbwue/FritzExporter/pkg/config"
 	"github.com/wbwue/FritzExporter/pkg/fritz"
+	//"github.com/wbwue/FritzExporter/pkg/loki"
+	//	"encoding/json"
+	"github.com/ndecker/fritzbox_exporter/fritzbox_upnp"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
@@ -68,12 +71,31 @@ var (
 		Name: "fritzbox_internet_upstream_current",
 		Help: "Gauge showing latest internet upstream speed",
 	}, []string{"type"})
+	InternetUptime = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "fritzbox_internet_uptime_seconds",
+		Help: "Gauge showing connection uptime",
+	}, []string{})
+	MaxLinkSpeed = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "fritzbox_internet_link_speed",
+		Help: "Gauge showing connection maximum speed",
+	}, []string{"direction"})
+	TotalBytes = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "fritzbox_internet_bytes_total",
+		Help: "Counter showing bytes sent/received on internet connection",
+	}, []string{"direction"})
+
+	ConnectionInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "fritzbox_internet_info",
+		Help: "Info showing details of internet connection",
+	}, []string{"wan_access_type", "link_status", "connection_status", "connection_error", "external_ipv4", "external_ipv6"})
 )
 
 type Scraper struct {
-	cfg        *config.Config
-	logger     log.Logger
-	deviceband map[string]prometheus.Labels
+	cfg              *config.Config
+	logger           log.Logger
+	deviceband       map[string]prometheus.Labels
+	upnpServicesRoot *fritzbox_upnp.Root
+	connectionInfos  *prometheus.Labels
 }
 
 func NewScraper(config *config.Config, logger log.Logger) *Scraper {
@@ -96,6 +118,7 @@ func (s *Scraper) Run(ctx context.Context) error {
 			f.Close()
 		}
 	}
+	s.loadServices()
 	for {
 		select {
 		case <-ctx.Done():
@@ -267,12 +290,28 @@ func (s *Scraper) Scrape() error {
 
 	}
 
-	out, err := s.query("internet/inetstat_counter.lua", "csv=", "GET", nil)
-	if err != nil {
-		//ignore for now
-	} else {
-		level.Debug(s.logger).Log("inetstat-counter", out)
+	ipv6, ipv4, connectionStatus, connectionError, uptime := s.getConnectionInfo()
+	InternetUptime.WithLabelValues().Set(uptime)
+
+	bytesSent, bytesReceived, wanAccessType, linkStatus, upstream, downstream := s.getLinkInfo()
+	TotalBytes.WithLabelValues("upstream").Set(bytesSent)
+	TotalBytes.WithLabelValues("downstream").Set(bytesReceived)
+	MaxLinkSpeed.WithLabelValues("upstream").Set(upstream)
+	MaxLinkSpeed.WithLabelValues("downstream").Set(downstream)
+
+	newLabels := prometheus.Labels{
+		"wan_access_type":   wanAccessType,
+		"link_status":       linkStatus,
+		"connection_status": connectionStatus,
+		"connection_error":  connectionError,
+		"external_ipv4":     ipv4,
+		"external_ipv6":     ipv6,
 	}
+	if s.connectionInfos != nil {
+		ConnectionInfo.With(*s.connectionInfos).Set(0)
+	}
+	s.connectionInfos = &newLabels
+	ConnectionInfo.With(newLabels).Set(1)
 
 	//systemstatus, _ := s.query("cgi-bin/system_status","")
 	//wlan, _ := s.query("data.lua","xhr=1&xhrId=wlanDevices&useajax=1&no_siderenew=&lang=de")
@@ -282,6 +321,136 @@ func (s *Scraper) Scrape() error {
 	}
 
 	return nil
+}
+
+func (s *Scraper) loadServices() error {
+	device := regexp.MustCompile("http.*://(.*)/.*").FindAllString(s.cfg.FritzBoxURL, 1)
+	root, err := fritzbox_upnp.LoadServices(device[0], 49000)
+	if err != nil {
+		return err
+	}
+	s.upnpServicesRoot = root
+	for name, se := range root.Services {
+		for a, _ := range se.Actions {
+
+			level.Debug(s.logger).Log("Services, Action", name, a)
+		}
+	}
+	return err
+}
+
+func (s *Scraper) getLinkInfo() (bytesSent, bytesReceived float64, wanAccessType, linkStatus string, upstream, downstream float64) {
+	if s.upnpServicesRoot == nil {
+		level.Warn(s.logger).Log("Services not loaded")
+	}
+	service, _ := s.upnpServicesRoot.Services["urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1"]
+
+	action, _ := service.Actions["GetAddonInfos"]
+	res, err := action.Call()
+	if err != nil {
+		level.Warn(s.logger).Log("Failed to execute action call", "action", action.Name)
+	}
+	resbytesSent, _ := res["TotalBytesSent"]
+	switch v := resbytesSent.(type) {
+	case uint64:
+		bytesSent = float64(v)
+	}
+	resBytesReceived, _ := res["TotalBytesReceived"]
+	switch v := resBytesReceived.(type) {
+	case uint64:
+		bytesReceived = float64(v)
+	}
+
+	action, _ = service.Actions["GetCommonLinkProperties"]
+	res, err = action.Call()
+	if err != nil {
+		level.Warn(s.logger).Log("Failed to execute action call", action.Name)
+	}
+	resWanAccessType, _ := res["WANAccessType"]
+	switch v := resWanAccessType.(type) {
+	case string:
+		wanAccessType = v
+	}
+	resLinkStatus, _ := res["PhysicalLinkStatus"]
+	switch v := resLinkStatus.(type) {
+	case string:
+		linkStatus = v
+	}
+	resUpstream, _ := res["Layer1UpstreamMaxBitRate"]
+	switch tval := resUpstream.(type) {
+	case uint64:
+		upstream = float64(tval)
+
+	}
+	resDownstream, _ := res["Layer1DownstreamMaxBitRate"]
+	switch tval := resDownstream.(type) {
+	case uint64:
+		downstream = float64(tval)
+
+	}
+
+	return
+}
+
+func (s *Scraper) getConnectionInfo() (extIPV6, extIPV4, connectionStatus, connectionError string, uptime float64) {
+	if s.upnpServicesRoot == nil {
+		level.Warn(s.logger).Log("Services not loaded")
+		return
+	}
+	service, ok := s.upnpServicesRoot.Services["urn:schemas-upnp-org:service:WANIPConnection:1"]
+	if !ok {
+		level.Warn(s.logger).Log("Service not available")
+		return
+	}
+	action, ok := service.Actions["X_AVM_DE_GetExternalIPv6Address"]
+	if !ok {
+		level.Warn(s.logger).Log("Action X_AVM_DE_GetExternalIPv6Address not available")
+		return
+	}
+	res, err := action.Call()
+	if err != nil {
+		level.Warn(s.logger).Log("Failed to execute action call", action.Name)
+	}
+	resExtIpV6, _ := res["ExternalIPv6Address"]
+	switch v := resExtIpV6.(type) {
+	case string:
+		extIPV6 = string(v)
+	}
+
+	action, _ = service.Actions["GetExternalIPAddress"]
+	res, err = action.Call()
+	if err != nil {
+		level.Warn(s.logger).Log("Failed to execute action call", action.Name)
+	}
+	resExtIpV4, _ := res["ExternalIPAddress"]
+	switch v := resExtIpV4.(type) {
+	case string:
+		extIPV4 = string(v)
+	}
+
+	action, _ = service.Actions["GetStatusInfo"]
+	res, err = action.Call()
+	if err != nil {
+		level.Warn(s.logger).Log("Failed to execute action call", action.Name)
+	}
+	resConnStatus, _ := res["ConnectionStatus"]
+	switch v := resConnStatus.(type) {
+	case string:
+		connectionStatus = string(v)
+	}
+	resConnError, _ := res["LastConnectionError"]
+	switch v := resConnError.(type) {
+	case string:
+		connectionError = string(v)
+	}
+	resUptime, _ := res["Uptime"]
+	switch tval := resUptime.(type) {
+	case uint64:
+		uptime = float64(tval)
+
+	}
+
+	return
 }
 
 func (s *Scraper) deviceSpecificData(UID string) (fritz.NetDevice, error) {

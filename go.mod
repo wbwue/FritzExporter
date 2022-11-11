@@ -5,6 +5,7 @@ go 1.11
 require (
 	github.com/Jeffail/gabs/v2 v2.6.0
 	github.com/go-kit/kit v0.10.0
+	github.com/ndecker/fritzbox_exporter v0.0.0-20170423140238-834e25023aeb
 	github.com/oklog/run v1.0.0
 	github.com/prometheus/client_golang v1.3.0
 	github.com/urfave/cli/v2 v2.2.0
