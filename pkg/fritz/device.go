@@ -86,7 +86,9 @@ func DecodeSingleDevice(body string) (NetDevice, error) {
 		fd.Wlan.QualityOfService = dev.Path("qualityOfService").Data().(string)
 		fd.Wlan.Encryption = dev.Path("encryption").Data().(string)
 		fd.Wlan.SignalProperties = getStringArray(dev, "encryption")
-		fd.Wlan.Is5GHz = dev.Path("is5GHz").Data().(bool)
+		if dev.Path("is5Ghz") != nil {
+			fd.Wlan.Is5GHz = dev.Path("is5GHz").Data().(bool)
+	        }
 
 	}
 	if fd.DevType == "lan" {
