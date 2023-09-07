@@ -8,7 +8,7 @@ require (
 	github.com/go-resty/resty/v2 v2.7.0
 	github.com/ndecker/fritzbox_exporter v0.0.0-20170423140238-834e25023aeb
 	github.com/oklog/run v1.0.0
-	github.com/prometheus/client_golang v1.3.0
+	github.com/prometheus/client_golang v1.11.1
 	github.com/urfave/cli/v2 v2.2.0
 )
 
