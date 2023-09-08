@@ -5,28 +5,22 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"io"
+	"io/ioutil"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
-
-	//	"encoding/json"
-	"github.com/wbwue/FritzExporter/pkg/loki"
-
-	"errors"
-	"io/ioutil"
-	"net/http"
 	"time"
 	"unicode/utf16"
 
 	"github.com/wbwue/FritzExporter/pkg/config"
-
 	"github.com/wbwue/FritzExporter/pkg/fritz"
+	"github.com/wbwue/FritzExporter/pkg/loki"
 
-	//"github.com/wbwue/FritzExporter/pkg/loki"
-	//	"encoding/json"
 	"github.com/ndecker/fritzbox_exporter/fritzbox_upnp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -205,7 +199,7 @@ func (s *Scraper) Scrape() error {
 	level.Debug(s.logger).Log("lastLogTime", lastLogTime.Format(time.RFC3339))
 
 	landevices, _ := s.query("query.lua", "network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url,devtype)", "GET", nil)
-	//level.Info(s.logger).Log(landevices)
+	level.Debug(s.logger).Log(landevices)
 	l := &fritz.LanDevices{}
 	err := l.Decode(landevices)
 	if err != nil {
@@ -261,6 +255,9 @@ func (s *Scraper) Scrape() error {
 			LanDevicesSpeed.WithLabelValues(v.Name, v.IP, v.Mac, devType).Set(speed)
 		}
 	}
+
+	// Traffic Monitor is changed quite a lot since 7.57, haven't figured out yet, how to best get the data out of it, see Result below
+
 	//old
 	//trafficmon, _ := s.query("internet/inetstat_monitor.lua", "action=get_graphic&myXhr=1&xhr=1&useajay=1", "GET", nil)
 	//new
@@ -514,7 +511,7 @@ func (s *Scraper) queryLogs() {
 	if err != nil {
 		level.Warn(s.logger).Log("Error", err)
 	}
-	//	level.Info(s.logger).Log("logs", logs)
+	level.Debug(s.logger).Log("logs", logs)
 	loglines := &fritz.Logs{}
 	err = loglines.Decode(logs)
 	if err != nil {

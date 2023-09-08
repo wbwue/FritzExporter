@@ -7,7 +7,7 @@ type Config struct {
 	Password       string
 	MetricsAddress string
 	LogPath        string
-	LokiURL	       string
+	LokiURL        string
 }
 
 func NewConfig() *Config {
