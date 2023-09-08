@@ -27,6 +27,7 @@ GLOBAL OPTIONS:
    --password value          Password to login into Fritz!Box [$FRITZ_PASSWORD]
    --exporter-address value  Address to bind the metrics server (default: "0.0.0.0:9200") [$FRITZ_EXPORTER_METRICS_ADDRESS]
    --fritz-log-path value    Where to write the log from FritzBox, if unset, it won't be queried [$FRITZ_EXPORTER_LOG_PATH]
+   --loki-address value      URL to push logs to Grafana Loki
    --help, -h                Show help (default: false)
    --version, -v             Prints the current version (default: false)
 ```

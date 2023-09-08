@@ -94,6 +94,13 @@ func main() {
 			EnvVars:     []string{"FRITZ_EXPORTER_LOG_PATH"},
 			Destination: &cfg.LogPath,
 		},
+		&cli.StringFlag{
+			Name:        "loki-address",
+			Value:       "loki",
+			Usage:       "Address to push loki logs",
+			EnvVars:     []string{"FRITZ_EXPORTER_LOKI_ADDRESS"},
+			Destination: &cfg.LokiURL,
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {

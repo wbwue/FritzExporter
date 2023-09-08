@@ -5,23 +5,25 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/xml"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-	"io"
-	"net/url"
-	"os"
-	"strconv"
-	"strings"
-
-	//	"encoding/json"
 	"errors"
+	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 	"unicode/utf16"
 
 	"github.com/wbwue/FritzExporter/pkg/config"
 	"github.com/wbwue/FritzExporter/pkg/fritz"
+	"github.com/wbwue/FritzExporter/pkg/loki"
+
+	"github.com/ndecker/fritzbox_exporter/fritzbox_upnp"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
@@ -71,9 +73,12 @@ var (
 )
 
 type Scraper struct {
-	cfg        *config.Config
-	logger     log.Logger
-	deviceband map[string]prometheus.Labels
+	cfg              *config.Config
+	logger           log.Logger
+	deviceband       map[string]prometheus.Labels
+	upnpServicesRoot *fritzbox_upnp.Root
+	connectionInfos  *prometheus.Labels
+	logPusher        loki.Pusher
 }
 
 func NewScraper(config *config.Config, logger log.Logger) *Scraper {
@@ -81,6 +86,7 @@ func NewScraper(config *config.Config, logger log.Logger) *Scraper {
 		cfg:        config,
 		logger:     logger,
 		deviceband: make(map[string]prometheus.Labels),
+		logPusher:  loki.New(config.LokiURL),
 	}
 }
 
@@ -95,6 +101,11 @@ func (s *Scraper) Run(ctx context.Context) error {
 		} else {
 			f.Close()
 		}
+	}
+	err := s.loadServices()
+	if err != nil {
+		level.Warn(s.logger).Log(err)
+		return err
 	}
 	for {
 		select {
@@ -188,7 +199,7 @@ func (s *Scraper) Scrape() error {
 	level.Debug(s.logger).Log("lastLogTime", lastLogTime.Format(time.RFC3339))
 
 	landevices, _ := s.query("query.lua", "network=landevice:settings/landevice/list(name,ip,mac,UID,dhcp,wlan,ethernet,active,wakeup,deleteable,source,online,speed,guest,url,devtype)", "GET", nil)
-	//level.Info(s.logger).Log(landevices)
+	level.Debug(s.logger).Log(landevices)
 	l := &fritz.LanDevices{}
 	err := l.Decode(landevices)
 	if err != nil {
@@ -244,28 +255,40 @@ func (s *Scraper) Scrape() error {
 			LanDevicesSpeed.WithLabelValues(v.Name, v.IP, v.Mac, devType).Set(speed)
 		}
 	}
-	trafficmon, _ := s.query("internet/inetstat_monitor.lua", "action=get_graphic&myXhr=1&xhr=1&useajay=1", "GET", nil)
 
-	t, err := fritz.DecodeTrafficMonitoringData(trafficmon)
-	if err != nil {
-		level.Warn(s.logger).Log("Error", err)
-	} else {
-		InternetDownstreamSpeed.WithLabelValues("internet").Set(t.DownstreamInternet[1])
-		InternetDownstreamSpeed.WithLabelValues("media").Set(t.DownstreamMedia[1])
-		if len(t.DownstreamGuest) > 0 {
-			InternetDownstreamSpeed.WithLabelValues("guest").Set(t.DownstreamGuest[1])
-		}
-		InternetUpstreamSpeed.WithLabelValues("realtime").Set(t.UpstreamRealtime[1])
-		InternetUpstreamSpeed.WithLabelValues("high").Set(t.UpstreamHighPriority[1])
-		InternetUpstreamSpeed.WithLabelValues("default").Set(t.UpstreamDefaultPriority[1])
-		InternetUpstreamSpeed.WithLabelValues("low").Set(t.UpstreamLowPriority[1])
-		if len(t.UpstreamGuest) > 0 {
-			InternetDownstreamSpeed.WithLabelValues("guest").Set(t.UpstreamGuest[1])
-		}
+	// Traffic Monitor is changed quite a lot since 7.57, haven't figured out yet, how to best get the data out of it, see Result below
 
-		level.Debug(s.logger).Log("traffic", t.Mode, "downstream", t.DownstreamCurrentMax, "upstream", t.UpstreamCurrentMax)
-
-	}
+	//old
+	//trafficmon, _ := s.query("internet/inetstat_monitor.lua", "action=get_graphic&myXhr=1&xhr=1&useajay=1", "GET", nil)
+	//new
+	//	tmd := url.Values{}
+	//	tmd.Set("page", "netMoni")
+	//	tmd.Set("xhrId", "updateGraphs")
+	//	tmd.Set("useajax", "1")
+	//	trafficmon, _ := s.query("data.lua", "lang=de&xhr=1", "POST", tmd)
+	//	// Result:
+	//	// {"pid":"netMoni","hide":{"shareUsb":true,"liveTv":true,"dectRdio":true,"rrd":true,"rss":true,"ssoSet":true,"dectMail":true,"mobile":true,"liveImg":true},"timeTillLogout":"1200","time":[],"data":{"show_guest":true,"sync_groups":[{"us_bps_curr_max":21983,"us_default_bps_curr":[14488,3593,7839,21655,2771,8319,15221,2849,10985,17718,15000,9030,12844,4512,8269,16119,2282,7630,12540,2963],"ds_bps_max":29492068,"_node":"sg0","mode":"CABLE","ds_mc_bps_curr":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"ds_bps_curr":[107073,4251,3578,462893,2855,4297,104583,2897,331200,8155,346743,4855,3908,4212,4981,13479,3152,3983,3522,2952],"us_bps_max":539444,"dynamic":true,"us_realtime_bps_curr":[292,321,292,328,292,291,292,319,291,352,409,329,363,291,291,386,292,292,320,291],"downstream":3600000,"upstream":384000,"name":"sync_cable","guest_us_bps":[0],"ds_guest_bps_curr":[0,0,0,44,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"us_background_bps_curr":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"ds_bps_curr_max":462893,"us_important_bps_curr":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}]},"sid":"..."}
+	//	level.Info(s.logger).Log("trafficmon", trafficmon)
+	//	t, err := fritz.DecodeTrafficMonitoringData(trafficmon)
+	//	if err != nil {
+	//		level.Warn(s.logger).Log("Error", err)
+	//	} else {
+	//		InternetDownstreamSpeed.WithLabelValues("internet").Set(t.DownstreamInternet[1])
+	//		InternetDownstreamSpeed.WithLabelValues("media").Set(t.DownstreamMedia[1])
+	//		if len(t.DownstreamGuest) > 0 {
+	//			InternetDownstreamSpeed.WithLabelValues("guest").Set(t.DownstreamGuest[1])
+	//		}
+	//		InternetUpstreamSpeed.WithLabelValues("realtime").Set(t.UpstreamRealtime[1])
+	//		InternetUpstreamSpeed.WithLabelValues("high").Set(t.UpstreamHighPriority[1])
+	//		InternetUpstreamSpeed.WithLabelValues("default").Set(t.UpstreamDefaultPriority[1])
+	//		InternetUpstreamSpeed.WithLabelValues("low").Set(t.UpstreamLowPriority[1])
+	//		if len(t.UpstreamGuest) > 0 {
+	//			InternetDownstreamSpeed.WithLabelValues("guest").Set(t.UpstreamGuest[1])
+	//		}
+	//
+	//		level.Debug(s.logger).Log("traffic", t.Mode, "downstream", t.DownstreamCurrentMax, "upstream", t.UpstreamCurrentMax)
+	//
+	//	}
 
 	out, err := s.query("internet/inetstat_counter.lua", "csv=", "GET", nil)
 	if err != nil {
@@ -273,7 +296,16 @@ func (s *Scraper) Scrape() error {
 	} else {
 		level.Debug(s.logger).Log("inetstat-counter", out)
 	}
+	//s.connectionInfos = &newLabels
+	//	ConnectionInfo.With(newLabels).Set(1)
+	//out, err := s.query("internet/inetstat_counter.lua", "csv=", "GET", nil)
+	//if err != nil {
+	//	//ignore for now
+	//} else {
+	//	level.Info(s.logger).Log("inetstat-counter", out)
+	//}
 
+	//s.generalInfo()
 	//systemstatus, _ := s.query("cgi-bin/system_status","")
 	//wlan, _ := s.query("data.lua","xhr=1&xhrId=wlanDevices&useajax=1&no_siderenew=&lang=de")
 
@@ -282,6 +314,137 @@ func (s *Scraper) Scrape() error {
 	}
 
 	return nil
+}
+
+func (s *Scraper) loadServices() error {
+	device := regexp.MustCompile("http.*://(.*)/.*").FindAllStringSubmatch(s.cfg.FritzBoxURL, 1)
+	root, err := fritzbox_upnp.LoadServices(device[0][1], 49000)
+	if err != nil {
+		return err
+	}
+	s.upnpServicesRoot = root
+	for name, se := range root.Services {
+		for a, _ := range se.Actions {
+
+			level.Debug(s.logger).Log("Services, Action", name, a)
+		}
+	}
+	return err
+}
+
+func (s *Scraper) getLinkInfo() (bytesSent, bytesReceived float64, wanAccessType, linkStatus string, upstream, downstream float64) {
+	if s.upnpServicesRoot == nil {
+		level.Warn(s.logger).Log("Services not loaded")
+		return
+	}
+	service, _ := s.upnpServicesRoot.Services["urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1"]
+
+	action, _ := service.Actions["GetAddonInfos"]
+	res, err := action.Call()
+	if err != nil {
+		level.Warn(s.logger).Log("Failed to execute action call", "action", action.Name)
+	}
+	resbytesSent, _ := res["TotalBytesSent"]
+	switch v := resbytesSent.(type) {
+	case uint64:
+		bytesSent = float64(v)
+	}
+	resBytesReceived, _ := res["TotalBytesReceived"]
+	switch v := resBytesReceived.(type) {
+	case uint64:
+		bytesReceived = float64(v)
+	}
+
+	action, _ = service.Actions["GetCommonLinkProperties"]
+	res, err = action.Call()
+	if err != nil {
+		level.Warn(s.logger).Log("Failed to execute action call", action.Name)
+	}
+	resWanAccessType, _ := res["WANAccessType"]
+	switch v := resWanAccessType.(type) {
+	case string:
+		wanAccessType = v
+	}
+	resLinkStatus, _ := res["PhysicalLinkStatus"]
+	switch v := resLinkStatus.(type) {
+	case string:
+		linkStatus = v
+	}
+	resUpstream, _ := res["Layer1UpstreamMaxBitRate"]
+	switch tval := resUpstream.(type) {
+	case uint64:
+		upstream = float64(tval)
+
+	}
+	resDownstream, _ := res["Layer1DownstreamMaxBitRate"]
+	switch tval := resDownstream.(type) {
+	case uint64:
+		downstream = float64(tval)
+
+	}
+
+	return
+}
+
+func (s *Scraper) getConnectionInfo() (extIPV6, extIPV4, connectionStatus, connectionError string, uptime float64) {
+	if s.upnpServicesRoot == nil {
+		level.Warn(s.logger).Log("Services not loaded")
+		return
+	}
+	service, ok := s.upnpServicesRoot.Services["urn:schemas-upnp-org:service:WANIPConnection:1"]
+	if !ok {
+		level.Warn(s.logger).Log("Service not available")
+		return
+	}
+	action, ok := service.Actions["X_AVM_DE_GetExternalIPv6Address"]
+	if !ok {
+		level.Warn(s.logger).Log("Action X_AVM_DE_GetExternalIPv6Address not available")
+		return
+	}
+	res, err := action.Call()
+	if err != nil {
+		level.Warn(s.logger).Log("Failed to execute action call", action.Name)
+	}
+	resExtIpV6, _ := res["ExternalIPv6Address"]
+	switch v := resExtIpV6.(type) {
+	case string:
+		extIPV6 = string(v)
+	}
+
+	action, _ = service.Actions["GetExternalIPAddress"]
+	res, err = action.Call()
+	if err != nil {
+		level.Warn(s.logger).Log("Failed to execute action call", action.Name)
+	}
+	resExtIpV4, _ := res["ExternalIPAddress"]
+	switch v := resExtIpV4.(type) {
+	case string:
+		extIPV4 = string(v)
+	}
+
+	action, _ = service.Actions["GetStatusInfo"]
+	res, err = action.Call()
+	if err != nil {
+		level.Warn(s.logger).Log("Failed to execute action call", action.Name)
+	}
+	resConnStatus, _ := res["ConnectionStatus"]
+	switch v := resConnStatus.(type) {
+	case string:
+		connectionStatus = string(v)
+	}
+	resConnError, _ := res["LastConnectionError"]
+	switch v := resConnError.(type) {
+	case string:
+		connectionError = string(v)
+	}
+	resUptime, _ := res["Uptime"]
+	switch tval := resUptime.(type) {
+	case uint64:
+		uptime = float64(tval)
+
+	}
+
+	return
 }
 
 func (s *Scraper) deviceSpecificData(UID string) (fritz.NetDevice, error) {
@@ -309,6 +472,32 @@ func (s *Scraper) deviceSpecificData(UID string) (fritz.NetDevice, error) {
 	return fd, err
 }
 
+//
+//func (s *Scraper) generalInfo() {
+//	dData := url.Values{}
+//	dData.Set("xhr", "1")
+//	dData.Set("xhrId", "all")
+//	dData.Set("lang", "de")
+//	dData.Set("page", "overview")
+//	//dData.Set("initialRefreshParamsSaved", "true")
+//	dData.Set("no_siderenew", "")
+//
+//	overviewData, err := s.query("data.lua", "", "POST", dData)
+//	if err != nil {
+//		level.Warn(s.logger).Log("Failure querying overview data", "error", err)
+//	} else {
+//		level.Debug(s.logger).Log("data", overviewData)
+//
+//		overview, err := fritz.DecodeOverViewData(overviewData)
+//		if err != nil {
+//			level.Warn(s.logger).Log("Failure parsing overview data", "error", err)
+//		} else {
+//			level.Info(s.logger).Log("FritzBox", overview.FritzOS.ProductName, "FritzOS", overview.FritzOS.Version)
+//			level.Info(s.logger).Log("uptime", overview.Internet.Uptime, "internet", overview.Internet.Txt)
+//		}
+//	}
+//}
+
 func (s *Scraper) queryLogs() {
 	logData := url.Values{}
 	logData.Set("page", "log")
@@ -322,6 +511,7 @@ func (s *Scraper) queryLogs() {
 	if err != nil {
 		level.Warn(s.logger).Log("Error", err)
 	}
+	level.Debug(s.logger).Log("logs", logs)
 	loglines := &fritz.Logs{}
 	err = loglines.Decode(logs)
 	if err != nil {
@@ -329,6 +519,10 @@ func (s *Scraper) queryLogs() {
 	} else {
 		// process log lines -> write to file on disk?
 		jsonLines, _ := loglines.EncodeAfter(*lastLogTime)
+		err = s.logPusher.Push(jsonLines)
+		if err != nil {
+			level.Warn(s.logger).Log("message", "cannot send logs", "error", err)
+		}
 		f, err := os.OpenFile(s.cfg.LogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 
 		if err != nil {
